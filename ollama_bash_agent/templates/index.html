@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ollama Bash Agent GUI</title>
+    <link href="https://fonts.googleapis.com/css2?family=Fira+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Fira Mono', monospace;
+            background: linear-gradient(135deg, #181c2b 0%, #232a3e 100%);
+            color: #e0e6f0;
+            margin: 0; padding: 0;
+            min-height: 100vh;
+            display: flex; flex-direction: column;
+        }
+        .container {
+            max-width: 500px;
+            margin: 48px auto 24px auto;
+            background: rgba(35, 38, 60, 0.98);
+            border-radius: 18px;
+            box-shadow: 0 8px 40px #000b, 0 1.5px 0 #8aff80 inset;
+            padding: 36px 36px 28px 36px;
+        }
+        .logo {
+            display: flex;
+            justify-content: center;
+            margin-bottom: 8px;
+        }
+        .logo-icon {
+            width: 54px; height: 54px;
+            border-radius: 12px;
+            background: linear-gradient(135deg, #8aff80 30%, #80c2ff 100%);
+            display: flex; align-items: center; justify-content: center;
+            font-size: 2.2em; color: #232323; font-weight: bold;
+            box-shadow: 0 2px 12px #8aff8055;
+        }
+        h1 {
+            text-align: center;
+            font-size: 2.1em;
+            font-weight: 700;
+            letter-spacing: 1.5px;
+            color: #8aff80;
+            margin-bottom: 18px;
+        }
+        form {
+            display: flex; flex-direction: column; gap: 14px;
+        }
+        input[type="text"] {
+            padding: 13px 14px;
+            border-radius: 7px;
+            border: 1.5px solid #3d465a;
+            background: #232a3e;
+            color: #e0e6f0;
+            font-size: 1.1em;
+            outline: none;
+            transition: border 0.2s;
+        }
+        input[type="text"]:focus {
+            border: 1.5px solid #8aff80;
+        }
+        button {
+            padding: 12px;
+            background: linear-gradient(90deg, #8aff80 60%, #80c2ff 100%);
+            color: #232323;
+            border: none;
+            border-radius: 7px;
+            font-weight: bold;
+            font-size: 1.1em;
+            cursor: pointer;
+            transition: background 0.18s, box-shadow 0.18s;
+            box-shadow: 0 2px 8px #8aff8033;
+        }
+        button:hover {
+            background: linear-gradient(90deg, #80c2ff 20%, #8aff80 100%);
+            box-shadow: 0 4px 18px #80c2ff44;
+        }
+        .output, .command {
+            background: #191e2d;
+            padding: 18px;
+            border-radius: 8px;
+            margin-top: 22px;
+            font-size: 1.1em;
+            white-space: pre-wrap;
+            box-shadow: 0 1px 8px #0004;
+        }
+        .command {
+            color: #80c2ff;
+            margin-bottom: 10px;
+            border-left: 4px solid #80c2ff;
+            background: #181f2e;
+        }
+        .output {
+            color: #8aff80;
+            border-left: 4px solid #8aff80;
+        }
+        .flash {
+            color: #ff8080;
+            margin-bottom: 14px;
+            text-align: center;
+            font-weight: bold;
+        }
+        footer {
+            text-align: center;
+            color: #6b7687;
+            font-size: 0.97em;
+            margin: 0 0 18px 0;
+            letter-spacing: 0.2px;
+        }
+        @media (max-width: 600px) {
+            .container { padding: 16px 3vw 18px 3vw; }
+            h1 { font-size: 1.4em; }
+            .logo-icon { width: 36px; height: 36px; font-size: 1.4em; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="logo">
+            <div class="logo-icon">⚡</div>
+        </div>
+        <h1>Ollama Bash Agent</h1>
+        {% with messages = get_flashed_messages() %}
+          {% if messages %}
+            <div class="flash">{{ messages[0] }}</div>
+          {% endif %}
+        {% endwith %}
+        <form method="post" id="prompt-form">
+            <select name="model" style="margin-bottom:8px; padding:7px; border-radius:6px; border:1px solid #3d465a; background:#232a3e; color:#e0e6f0; font-size:1em;">
+                {% for m in models %}
+                    <option value="{{ m }}" {% if model==m %}selected{% endif %}>{{ m }}</option>
+                {% endfor %}
+            </select>
+            <input type="text" name="prompt" placeholder="Describe your task (e.g. list files in the current directory)" value="{{ prompt or '' }}" autofocus required>
+            {% if bash_command and not approved %}
+                <button type="submit" name="approve" value="1">Approve & Run</button>
+            {% else %}
+                <button type="submit">Generate & Run</button>
+            {% endif %}
+        </form>
+        {% if steps %}
+            <div class="command">
+                <strong>Steps:</strong>
+                <ol style="margin:0; padding-left:1.2em;">
+                {% for step in steps %}
+                    <li style="margin-bottom:10px;">
+                        <span style="color:#8aff80;"><strong>Command:</strong></span> <span style="color:#e0e6f0">{{ step.command }}</span><br>
+                        <span style="color:#80c2ff;"><strong>Explanation:</strong></span> <span style="color:#e0e6f0">{{ step.explanation }}</span>
+                    </li>
+                {% endfor %}
+                </ol>
+            </div>
+        {% elif bash_command %}
+            <div class="command"><strong>Command:</strong> {{ bash_command }}</div>
+        {% endif %}
+        {% if error %}
+            <div class="flash">Error: {{ error }}</div>
+        {% endif %}
+        {% if raw_model_output %}
+            <div class="output" style="color:#ffb380; border-left:4px solid #ffb380;"><strong>Raw Model Output:</strong><br>{{ raw_model_output }}</div>
+        {% endif %}
+        {% if output %}
+            {% if steps and output %}
+                <div class="output">
+                    <strong>Step Outputs:</strong>
+                    <ol style="margin:0; padding-left:1.2em;">
+                    {% for o in output %}
+                        <li style="margin-bottom:10px;">
+                            <span style="color:#8aff80;"><strong>Command:</strong></span> <span style="color:#e0e6f0">{{ o.command }}</span><br>
+                            <span style="color:#80c2ff;"><strong>Explanation:</strong></span> <span style="color:#e0e6f0">{{ o.explanation }}</span><br>
+                            <span style="color:#ffd480;"><strong>Output:</strong></span> <span style="color:#e0e6f0">{{ o.output }}</span>
+                        </li>
+                    {% endfor %}
+                    </ol>
+                </div>
+            {% else %}
+                <div class="output"><strong>Output:</strong><br>{{ output }}</div>
+            {% endif %}
+            <form method="post" action="/download" style="margin-top:10px; text-align:right;">
+                <input type="hidden" name="output" value="{{ output|tojson|safe }}">
+                <button type="submit" style="padding:7px 13px; font-size:1em; background:#80c2ff; color:#232323; border:none; border-radius:5px; cursor:pointer;">Download Output</button>
+            </form>
+        {% endif %}
+        {% if history %}
+            <div style="margin-top:30px;">
+                <h2 style="font-size:1.2em; color:#8aff80; border-bottom:1.5px solid #80c2ff; padding-bottom:4px;">History</h2>
+                <div style="max-height:220px; overflow-y:auto;">
+                {% for h in history|reverse %}
+                    <div style="background:#232a3e; border-radius:7px; margin-bottom:10px; padding:10px 14px; box-shadow:0 1px 5px #0002;">
+                        <div style="font-size:0.98em; color:#80c2ff;"><strong>Prompt:</strong> {{ h.prompt }}</div>
+                        <div style="font-size:0.97em; color:#8aff80;"><strong>Command:</strong> {{ h.command }}</div>
+                        <div style="font-size:0.97em; color:#e0e6f0;"><strong>Output:</strong> {{ h.output }}</div>
+                        <div style="font-size:0.92em; color:#6b7687;"><strong>Model:</strong> {{ h.model }}</div>
+                        <form method="post" style="display:inline;">
+                            <input type="hidden" name="prompt" value="{{ h.prompt }}">
+                            <input type="hidden" name="model" value="{{ h.model }}">
+                            <button type="submit" style="margin-top:5px; padding:3px 8px; font-size:0.95em; background:#8aff80; color:#232323; border:none; border-radius:4px; cursor:pointer;">Replay</button>
+                        </form>
+                    </div>
+                {% endfor %}
+                </div>
+            </div>
+        {% endif %}
+    </div>
+    <footer>
+        Ollama Bash Agent &middot; <span style="color:#8aff80">AI-Powered</span> &middot; &copy; 2025 Ivan Pinto
+    </footer>
+    <script>
+    // Log page load
+    console.log('[Ollama Bash Agent] Page loaded');
+
+    // Set window variables for safe access (always valid JS)
+    window._prompt = {{ prompt|tojson|safe }};
+    window._model = {{ model|tojson|safe }};
+    window._bash_command = {{ bash_command|tojson|safe }};
+    window._output = {{ output|tojson|safe }};
+    window._error = {{ error|tojson|safe }};
+    window._raw_model_output = {{ raw_model_output|tojson|safe }};
+    window._history = {{ history|tojson|safe }};
+
+    // Log initial state only if defined
+    if (window._prompt) console.log('Prompt:', JSON.stringify(window._prompt));
+    if (window._model) console.log('Model:', JSON.stringify(window._model));
+    if (window._bash_command) console.log('Generated Command:', JSON.stringify(window._bash_command));
+    if (window._output) console.log('Command Output:', JSON.stringify(window._output));
+    if (window._error) console.warn('Error:', JSON.stringify(window._error));
+    if (window._raw_model_output) console.log('Raw Model Output:', JSON.stringify(window._raw_model_output));
+    if (window._history) console.log('History:', JSON.stringify(window._history));
+
+    // Log form submissions
+    document.getElementById('prompt-form')?.addEventListener('submit', function(e) {
+      const form = e.target;
+      const prompt = form.prompt?.value;
+      const model = form.model?.value;
+      const approve = form.approve?.value;
+      if (approve) {
+        console.log('[Approve & Run] Prompt:', prompt, '| Model:', model);
+      } else {
+        console.log('[Generate & Run] Prompt:', prompt, '| Model:', model);
+      }
+    });
+
+    // Log download button
+    document.querySelectorAll('form[action="/download"]').forEach(f => {
+      f.addEventListener('submit', function(e) {
+        console.log('[Download Output]');
+      });
+    });
+
+    // Log replay buttons
+    document.querySelectorAll('form button').forEach(btn => {
+      if (btn.textContent.trim() === 'Replay') {
+        btn.addEventListener('click', function() {
+          const prompt = btn.parentElement.querySelector('input[name="prompt"]').value;
+          const model = btn.parentElement.querySelector('input[name="model"]').value;
+          console.log('[Replay] Prompt:', prompt, '| Model:', model);
+        });
+      }
+    });
+    </script>
+</body>
+</html>
