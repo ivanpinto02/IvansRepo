@@ -1,0 +1,15 @@
+name: CI/CD
+
+on:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - uses: actions/setup-python@v2
+      - run: pip install -r ollama_bash_agent/requirements.txt
+      - run: python -m unittest discover -s ollama_bash_agent -p "test*.py"
