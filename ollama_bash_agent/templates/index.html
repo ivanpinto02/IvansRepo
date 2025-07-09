@@ -131,34 +131,22 @@
                     <option value="{{ m }}" {% if model==m %}selected{% endif %}>{{ m }}</option>
                 {% endfor %}
             </select>
-            <input type="text" name="prompt" placeholder="Describe your task (e.g. list files in the current directory)" value="{{ prompt or '' }}" autofocus required>
+            <input type="text" name="prompt" placeholder="Describe your task (e.g. list files in the current directory)" value="" autofocus required>
             {% if bash_command and not approved %}
                 <button type="submit" name="approve" value="1">Approve & Run</button>
             {% else %}
                 <button type="submit">Generate & Run</button>
             {% endif %}
+            <div id="stream-output" style="background:#181f2e; color:#8aff80; padding:14px; border-radius:7px; margin-top:10px; min-height:28px; font-family:inherit; white-space:pre-wrap;"></div>
         </form>
-        {% if steps %}
-            <div class="command">
-                <strong>Steps:</strong>
-                <ol style="margin:0; padding-left:1.2em;">
-                {% for step in steps %}
-                    <li style="margin-bottom:10px;">
-                        <span style="color:#8aff80;"><strong>Command:</strong></span> <span style="color:#e0e6f0">{{ step.command }}</span><br>
-                        <span style="color:#80c2ff;"><strong>Explanation:</strong></span> <span style="color:#e0e6f0">{{ step.explanation }}</span>
-                    </li>
-                {% endfor %}
-                </ol>
-            </div>
-        {% elif bash_command %}
+        {% if bash_command %}
             <div class="command"><strong>Command:</strong> {{ bash_command }}</div>
         {% endif %}
-        {% if error %}
+
+        {% if error is defined and error and error|length > 0 %}
             <div class="flash">Error: {{ error }}</div>
         {% endif %}
-        {% if raw_model_output %}
-            <div class="output" style="color:#ffb380; border-left:4px solid #ffb380;"><strong>Raw Model Output:</strong><br>{{ raw_model_output }}</div>
-        {% endif %}
+
         {% if output %}
             {% if steps and output %}
                 <div class="output">
@@ -206,6 +194,26 @@
         Ollama Bash Agent &middot; <span style="color:#8aff80">AI-Powered</span> &middot; &copy; 2025 Ivan Pinto
     </footer>
     <script>
+    // --- Streaming LLM Output: Default on form submit ---
+    document.getElementById('prompt-form')?.addEventListener('submit', function(e) {
+      e.preventDefault();
+      const form = e.target;
+      const prompt = form.prompt?.value || window._prompt;
+      const model = form.model?.value || window._model || 'llama3';
+      const outputDiv = document.getElementById('stream-output');
+      outputDiv.textContent = '';
+      if (!prompt) { outputDiv.textContent = 'Prompt required.'; return; }
+      const url = `/stream?prompt=${encodeURIComponent(prompt)}&model=${encodeURIComponent(model)}`;
+      const es = new EventSource(url);
+      es.onmessage = function(event) {
+        outputDiv.textContent += event.data;
+      };
+      es.onerror = function() {
+        outputDiv.textContent += '\n[Stream ended or error]';
+        es.close();
+      };
+    });
+
     // Log page load
     console.log('[Ollama Bash Agent] Page loaded');
 

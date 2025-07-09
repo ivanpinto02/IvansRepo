@@ -2,7 +2,7 @@ import os
 import platform
 import requests
 import json
-from flask import Flask, render_template, request, redirect, url_for, flash, session, send_file
+from flask import Flask, render_template, request, redirect, url_for, flash, session, send_file, Response
 
 OLLAMA_API_URL = "http://localhost:11434/api/generate"
 DEFAULT_MODEL = "llama3"
@@ -31,6 +31,14 @@ def extract_command(text):
         return lines[0]
     else:
         return text.strip()
+
+def robust_extract_json(text, retries=5):
+    for attempt in range(retries):
+        result = extract_json(text)
+        if result is not None:
+            return result
+        # Optionally, try additional cleaning or logging here
+    return None
 
 def extract_json(text):
     # Remove code block markers and clean up output
@@ -77,13 +85,12 @@ def extract_json(text):
     print(f"[ERROR] Could not extract valid JSON. Raw output: {text}")
     return None
 
-def prompt_ollama(prompt, model):
+def prompt_ollama(prompt, model, stream_mode=False):
     system = platform.system()
     if system == "Windows":
         shell_type = "Windows cmd"
     else:
         shell_type = "bash"
-    # Ask for JSON array of steps
     data = {
         "model": model,
         "prompt": (
@@ -94,6 +101,20 @@ def prompt_ollama(prompt, model):
         )
     }
     response = requests.post(OLLAMA_API_URL, json=data, stream=True)
+    if stream_mode:
+        # Yield each chunk as SSE
+        def generate():
+            for line in response.iter_lines():
+                if not line:
+                    continue
+                try:
+                    payload = json.loads(line.decode("utf-8"))
+                    if 'response' in payload:
+                        yield f"data: {payload['response']}\n\n"
+                except Exception:
+                    continue
+        return generate()
+    # Normal (non-stream) mode:
     command = ""
     for line in response.iter_lines():
         if not line:
@@ -104,10 +125,15 @@ def prompt_ollama(prompt, model):
                 command += payload['response']
         except Exception:
             continue
-    json_command = extract_json(command)
+    json_command = robust_extract_json(command)
     error = None
     if json_command is not None:
-        return json_command, command, error
+        # If multi-step, ensure it's a list of dicts with 'command'
+        if isinstance(json_command, list) and all(isinstance(step, dict) and 'command' in step for step in json_command):
+            return json_command, command, error
+        # If single command string
+        elif isinstance(json_command, str):
+            return json_command, command, error
     # Fallback: scan all lines for plausible command
     known_cmds = r'^(echo|dir|start|type|cd|copy|move|del|cls|ls|pwd|cat|touch|rm|cp|mv|whoami|hostname|date|time|exit|shutdown|ipconfig|ifconfig|tree|findstr|grep|curl|wget|python|pip|powershell|cmd|set|env)'
     for line in command.splitlines():
@@ -115,8 +141,21 @@ def prompt_ollama(prompt, model):
         if re.match(known_cmds, l, re.IGNORECASE):
             error = "Used fallback extraction."
             return l, command, error
+    # Final fallback: try extract_command
+    extracted = extract_command(command)
+    if extracted and extracted.strip():
+        error = "Used permissive fallback extraction."
+        return extracted.strip(), command, error
     error = "Could not extract any plausible command."
-    return "echo ERROR: Could not extract command from model output", command, error
+    return "", command, error
+
+@app.route('/stream')
+def stream():
+    prompt = request.args.get('prompt')
+    model = request.args.get('model', DEFAULT_MODEL)
+    if not prompt:
+        return "Missing prompt", 400
+    return Response(prompt_ollama(prompt, model, stream_mode=True), mimetype='text/event-stream')
 
 def run_command(command):
     try:
