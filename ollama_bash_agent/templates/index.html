@@ -46,6 +46,20 @@
         form {
             display: flex; flex-direction: column; gap: 14px;
         }
+        .spinner {
+            display: none;
+            margin: 16px auto 0 auto;
+            border: 6px solid #232a3e;
+            border-top: 6px solid #8aff80;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
         input[type="text"] {
             padding: 13px 14px;
             border-radius: 7px;
@@ -138,6 +152,7 @@
                 <button type="submit">Generate & Run</button>
             {% endif %}
             <div id="stream-output" style="background:#181f2e; color:#8aff80; padding:14px; border-radius:7px; margin-top:10px; min-height:28px; font-family:inherit; white-space:pre-wrap;"></div>
+            <div id="loading-spinner" class="spinner"></div>
         </form>
         {% if bash_command %}
             <div class="command"><strong>Command:</strong> {{ bash_command }}</div>
@@ -201,8 +216,10 @@
       const prompt = form.prompt?.value || window._prompt;
       const model = form.model?.value || window._model || 'llama3';
       const outputDiv = document.getElementById('stream-output');
+      const spinner = document.getElementById('loading-spinner');
       outputDiv.textContent = '';
-      if (!prompt) { outputDiv.textContent = 'Prompt required.'; return; }
+      spinner.style.display = 'block';
+      if (!prompt) { outputDiv.textContent = 'Prompt required.'; spinner.style.display = 'none'; return; }
       const url = `/stream?prompt=${encodeURIComponent(prompt)}&model=${encodeURIComponent(model)}`;
       const es = new EventSource(url);
       es.onmessage = function(event) {
@@ -210,7 +227,19 @@
       };
       es.onerror = function() {
         outputDiv.textContent += '\n[Stream ended or error]';
+        spinner.style.display = 'none';
         es.close();
+      };
+      es.onopen = function() {
+        spinner.style.display = 'block';
+      };
+      es.addEventListener('end', function() {
+        spinner.style.display = 'none';
+      });
+      // Hide spinner when stream ends (when any message comes in, we can also hide if done)
+      es.onmessage = function(event) {
+        outputDiv.textContent += event.data;
+        spinner.style.display = 'none';
       };
     });
 
