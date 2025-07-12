@@ -56,12 +56,38 @@ async def prompt_ollama(prompt, model):
 
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
-    return templates.TemplateResponse("index.html", {"request": request, "bash_command": None, "error": None, "output": None, "model": DEFAULT_MODEL, "models": AVAILABLE_MODELS, "history": []})
+    injected_json = json.dumps({
+        "prompt": None,
+        "model": DEFAULT_MODEL,
+        "bash_command": None,
+        "output": None,
+        "error": None,
+        "raw_model_output": None,
+        "history": [],
+    })
+    return templates.TemplateResponse("index.html", {
+        "request": request,
+        "injected_json": injected_json,
+        "models": AVAILABLE_MODELS
+    })
 
 @app.post("/", response_class=HTMLResponse)
 async def index_post(request: Request, prompt: str = Form(...), model: str = Form(...)):
     # TODO: Integrate your async LLM logic here. For now, just echo the prompt/model.
-    return templates.TemplateResponse("index.html", {"request": request, "bash_command": f"Generated for: {prompt}", "error": None, "output": None, "model": model, "models": AVAILABLE_MODELS, "history": []})
+    injected_json = json.dumps({
+        "prompt": prompt,
+        "model": model,
+        "bash_command": f"Generated for: {prompt}",
+        "output": None,
+        "error": None,
+        "raw_model_output": None,
+        "history": [],
+    })
+    return templates.TemplateResponse("index.html", {
+        "request": request,
+        "injected_json": injected_json,
+        "models": AVAILABLE_MODELS
+    })
 
 @app.get("/stream")
 async def stream(prompt: str, model: str = DEFAULT_MODEL):

@@ -246,54 +246,11 @@
     // Log page load
     console.log('[Ollama Bash Agent] Page loaded');
 
-    // Set window variables for safe access (always valid JS)
-    window._prompt = {{ prompt|tojson|safe }};
-    window._model = {{ model|tojson|safe }};
-    window._bash_command = {{ bash_command|tojson|safe }};
-    window._output = {{ output|tojson|safe }};
-    window._error = {{ error|tojson|safe }};
-    window._raw_model_output = {{ raw_model_output|tojson|safe }};
-    window._history = {{ history|tojson|safe }};
-
-    // Log initial state only if defined
-    if (window._prompt) console.log('Prompt:', JSON.stringify(window._prompt));
-    if (window._model) console.log('Model:', JSON.stringify(window._model));
-    if (window._bash_command) console.log('Generated Command:', JSON.stringify(window._bash_command));
-    if (window._output) console.log('Command Output:', JSON.stringify(window._output));
-    if (window._error) console.warn('Error:', JSON.stringify(window._error));
-    if (window._raw_model_output) console.log('Raw Model Output:', JSON.stringify(window._raw_model_output));
-    if (window._history) console.log('History:', JSON.stringify(window._history));
-
-    // Log form submissions
-    document.getElementById('prompt-form')?.addEventListener('submit', function(e) {
-      const form = e.target;
-      const prompt = form.prompt?.value;
-      const model = form.model?.value;
-      const approve = form.approve?.value;
-      if (approve) {
-        console.log('[Approve & Run] Prompt:', prompt, '| Model:', model);
-      } else {
-        console.log('[Generate & Run] Prompt:', prompt, '| Model:', model);
-      }
-    });
-
-    // Log download button
-    document.querySelectorAll('form[action="/download"]').forEach(f => {
-      f.addEventListener('submit', function(e) {
-        console.log('[Download Output]');
-      });
-    });
-
-    // Log replay buttons
-    document.querySelectorAll('form button').forEach(btn => {
-      if (btn.textContent.trim() === 'Replay') {
-        btn.addEventListener('click', function() {
-          const prompt = btn.parentElement.querySelector('input[name="prompt"]').value;
-          const model = btn.parentElement.querySelector('input[name="model"]').value;
-          console.log('[Replay] Prompt:', prompt, '| Model:', model);
-        });
-      }
-    });
-    </script>
+    // Inject all server variables as a single JSON object for clean JS and no lint errors
+  <script>
+    window._injected = {{ injected_json|safe }};
+  </script>
+  <script src="/templates/injected_vars.js"></script>
+  <script src="/static/main.js"></script>
 </body>
 </html>
