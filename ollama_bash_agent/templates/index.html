@@ -208,49 +208,236 @@
     <footer>
         Ollama Bash Agent &middot; <span style="color:#8aff80">AI-Powered</span> &middot; &copy; 2025 Ivan Pinto
     </footer>
-    <script>
-    // --- Streaming LLM Output: Default on form submit ---
-    document.getElementById('prompt-form')?.addEventListener('submit', function(e) {
-      e.preventDefault();
-      const form = e.target;
-      const prompt = form.prompt?.value || window._prompt;
-      const model = form.model?.value || window._model || 'llama3';
-      const outputDiv = document.getElementById('stream-output');
-      const spinner = document.getElementById('loading-spinner');
-      outputDiv.textContent = '';
-      spinner.style.display = 'block';
-      if (!prompt) { outputDiv.textContent = 'Prompt required.'; spinner.style.display = 'none'; return; }
-      const url = `/stream?prompt=${encodeURIComponent(prompt)}&model=${encodeURIComponent(model)}`;
-      const es = new EventSource(url);
-      es.onmessage = function(event) {
-        outputDiv.textContent += event.data;
-      };
-      es.onerror = function() {
-        outputDiv.textContent += '\n[Stream ended or error]';
-        spinner.style.display = 'none';
-        es.close();
-      };
-      es.onopen = function() {
-        spinner.style.display = 'block';
-      };
-      es.addEventListener('end', function() {
-        spinner.style.display = 'none';
-      });
-      // Hide spinner when stream ends (when any message comes in, we can also hide if done)
-      es.onmessage = function(event) {
-        outputDiv.textContent += event.data;
-        spinner.style.display = 'none';
-      };
-    });
+    <!-- First, inject the server variables -->
+    <script type="text/javascript">
+        // Set default values for injected variables
+        window._injected = JSON.parse('{{ injected_data|tojson|safe }}') || {};
+        let eventSource = null;
+        let isProcessing = false;
+        
+        // Log page load
+        console.log('[Ollama Bash Agent] Page loaded');
+        console.log('Injected data:', window._injected);
+        
+        // Function to close existing connection
+        function closeConnection() {
+            if (eventSource) {
+                try {
+                    // Remove all event listeners first
+                    eventSource.onopen = null;
+                    eventSource.onmessage = null;
+                    eventSource.onerror = null;
+                    
+                    // Close the connection
+                    eventSource.close();
+                    console.log('SSE connection closed');
+                } catch (e) {
+                    console.error('Error closing SSE connection:', e);
+                } finally {
+                    eventSource = null;
+                    if (spinner) spinner.style.display = 'none';
+                }
+            }
+        }
+        
+        // Define the streaming function
+        function setupStreaming() {
+            const form = document.getElementById('prompt-form');
+            if (!form) {
+                console.error('Prompt form not found');
+                return;
+            }
+            
+            form.addEventListener('submit', async function(e) {
+                e.preventDefault();
+                
+                // Prevent multiple submissions
+                if (isProcessing) {
+                    console.log('Already processing a request');
+                    return;
+                }
+                
+                isProcessing = true;
+                
+                // Close any existing connection
+                closeConnection();
+                
+                const form = e.target;
+                const prompt = (form.prompt && form.prompt.value) || window._injected.prompt || '';
+                const model = (form.model && form.model.value) || window._injected.model || 'llama3';
+                const outputDiv = document.getElementById('stream-output');
+                const spinner = document.getElementById('loading-spinner');
 
-    // Log page load
-    console.log('[Ollama Bash Agent] Page loaded');
+                if (!outputDiv) {
+                    console.error('Output div not found');
+                    isProcessing = false;
+                    return;
+                }
+                
+                outputDiv.textContent = '';
+                if (spinner) spinner.style.display = 'inline-block';
 
-    // Inject all server variables as a single JSON object for clean JS and no lint errors
-  <script>
-    window._injected = {{ injected_json|safe }};
-  </script>
-  <script src="/templates/injected_vars.js"></script>
-  <script src="/static/main.js"></script>
+                console.log('Connecting to SSE endpoint with prompt:', prompt, 'and model:', model);
+                
+                try {
+                    // Create a unique URL to prevent caching issues
+                    const url = `/stream?prompt=${encodeURIComponent(prompt)}&model=${encodeURIComponent(model)}&_=${Date.now()}`;
+                    console.log('Connecting to SSE endpoint:', url);
+                    
+                    // Close any existing connection
+                    closeConnection();
+                    
+                    // Create a new EventSource with error handling
+                    try {
+                        eventSource = new EventSource(url);
+                        let receivedData = false;
+                        let errorShown = false;
+                        let lastEventId = '';
+                        
+                        // Handle connection opened
+                        eventSource.onopen = function() {
+                            console.log('SSE connection established');
+                            if (spinner) spinner.style.display = 'inline-block';
+                            if (outputDiv) outputDiv.textContent = '';
+                        };
+                        
+                        // Handle incoming messages
+                        eventSource.onmessage = function(event) {
+                            try {
+                                console.log('SSE raw message:', event);
+                                
+                                // Update last event ID for reconnection
+                                if (event.lastEventId) {
+                                    lastEventId = event.lastEventId;
+                                }
+                                
+                                // Process the event data
+                                if (event.data && event.data.trim()) {
+                                    receivedData = true;
+                                    
+                                    // Handle different event types
+                                    switch (event.type) {
+                                        case 'status':
+                                            console.log('Status update:', event.data);
+                                            break;
+                                            
+                                        case 'error':
+                                            console.error('Server error:', event.data);
+                                            if (outputDiv) {
+                                                outputDiv.textContent += `\n[Error] ${event.data}\n`;
+                                                outputDiv.scrollTop = outputDiv.scrollHeight;
+                                            }
+                                            break;
+                                            
+                                        case 'end':
+                                            console.log('Stream ended');
+                                            closeConnection();
+                                            break;
+                                            
+                                        default:  // 'message' or unspecified
+                                            if (outputDiv) {
+                                                outputDiv.textContent += event.data;
+                                                outputDiv.scrollTop = outputDiv.scrollHeight;
+                                            }
+                                    }
+                                }
+                                
+                            } catch (e) {
+                                console.error('Error processing SSE message:', e);
+                            } finally {
+                                if (spinner) spinner.style.display = 'none';
+                            }
+                        };
+
+                        // Handle connection errors
+                        eventSource.onerror = function(error) {
+                            console.error('SSE connection error:', error);
+                            
+                            // Only show error if we haven't received any data yet
+                            if (!receivedData && !errorShown) {
+                                if (outputDiv) {
+                                    outputDiv.textContent = 'Error: Could not connect to the server. ';
+                                    outputDiv.textContent += 'Please check if the Ollama service is running and try again.';
+                                    outputDiv.scrollTop = outputDiv.scrollHeight;
+                                }
+                                errorShown = true;
+                            }
+                            
+                            // Close the connection on error
+                            closeConnection();
+                            if (spinner) spinner.style.display = 'none';
+                        };
+                        
+                        // Handle specific event types
+                        eventSource.addEventListener('status', function(e) {
+                            console.log('Status:', e.data);
+                        });
+                        
+                        eventSource.addEventListener('error', function(e) {
+                            console.error('Server error event:', e.data);
+                            if (outputDiv) {
+                                outputDiv.textContent += `\n[Server Error] ${e.data}\n`;
+                                outputDiv.scrollTop = outputDiv.scrollHeight;
+                            }
+                        });
+                        
+                        eventSource.addEventListener('end', function() {
+                            console.log('Received end event');
+                            closeConnection();
+                        });
+                        
+                        // Set a timeout to close the connection if no data is received
+                        const connectionTimeout = setTimeout(() => {
+                            if (!receivedData && eventSource.readyState !== EventSource.CLOSED) {
+                                console.error('SSE connection timeout');
+                                if (outputDiv) {
+                                    outputDiv.textContent = 'Error: Connection timed out. The server is taking too long to respond.';
+                                    outputDiv.scrollTop = outputDiv.scrollHeight;
+                                }
+                                closeConnection();
+                                if (spinner) spinner.style.display = 'none';
+                            }
+                        }, 30000); // 30 seconds timeout
+                        
+                        // Clean up the timeout when data is received
+                        eventSource.addEventListener('message', function cleanup() {
+                            clearTimeout(connectionTimeout);
+                            eventSource.removeEventListener('message', cleanup);
+                        });
+                        
+                    } catch (e) {
+                        console.error('Error creating EventSource:', e);
+                        if (outputDiv) {
+                            outputDiv.textContent = 'Error: Failed to create a connection to the server.';
+                            outputDiv.scrollTop = outputDiv.scrollHeight;
+                        }
+                        if (spinner) spinner.style.display = 'none';
+                    }
+
+                } catch (error) {
+                    console.error('Error creating EventSource:', error);
+                    if (spinner) spinner.style.display = 'none';
+                    if (outputDiv) {
+                        outputDiv.textContent = 'Error: Could not establish connection to the server.';
+                    }
+                    closeConnection();
+                }
+            });
+            
+            // Clean up on page unload
+            window.addEventListener('beforeunload', closeConnection);
+        }
+        
+        // Initialize when the DOM is fully loaded
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', setupStreaming);
+        } else {
+            setupStreaming();
+        }
+    </script>
+    
+    <!-- Then load the rest of the JavaScript files -->
+    <script src="/static/injected_vars.js"></script>
+    <script src="/static/main.js"></script>
 </body>
 </html>
