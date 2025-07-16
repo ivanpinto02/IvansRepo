@@ -15,3 +15,5 @@ ollama_models/
 *.pkl
 *.h5
 *.onnx
+
+You did it!
