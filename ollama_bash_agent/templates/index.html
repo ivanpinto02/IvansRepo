@@ -208,236 +208,53 @@
     <footer>
         Ollama Bash Agent &middot; <span style="color:#8aff80">AI-Powered</span> &middot; &copy; 2025 Ivan Pinto
     </footer>
-    <!-- First, inject the server variables -->
-    <script type="text/javascript">
-        // Set default values for injected variables
-        window._injected = JSON.parse('{{ injected_data|tojson|safe }}') || {};
-        let eventSource = null;
-        let isProcessing = false;
-        
-        // Log page load
+    <!-- Initialize page data as JSON -->
+    <script id="app-data" type="application/json">
+    {
+        "prompt": {{ prompt|tojson|safe }},
+        "model": "{{ model|default('llama3')|safe }}",
+        "bash_command": {% if bash_command %}{{ bash_command|tojson|safe }}{% else %}null{% endif %},
+        "output": {% if output %}{{ output|tojson|safe }}{% else %}null{% endif %},
+        "error": {% if error %}{{ error|tojson|safe }}{% else %}null{% endif %},
+        "raw_model_output": {% if raw_model_output %}{{ raw_model_output|tojson|safe }}{% else %}null{% endif %},
+        "history": {{ history|default([])|tojson|safe }},
+        "models": {{ models|default([])|tojson|safe }}
+    }
+    </script>
+    
+    <!-- Initialize application state -->
+    <script>
         console.log('[Ollama Bash Agent] Page loaded');
-        console.log('Injected data:', window._injected);
         
-        // Function to close existing connection
-        function closeConnection() {
-            if (eventSource) {
-                try {
-                    // Remove all event listeners first
-                    eventSource.onopen = null;
-                    eventSource.onmessage = null;
-                    eventSource.onerror = null;
-                    
-                    // Close the connection
-                    eventSource.close();
-                    console.log('SSE connection closed');
-                } catch (e) {
-                    console.error('Error closing SSE connection:', e);
-                } finally {
-                    eventSource = null;
-                    if (spinner) spinner.style.display = 'none';
-                }
-            }
-        }
-        
-        // Define the streaming function
-        function setupStreaming() {
-            const form = document.getElementById('prompt-form');
-            if (!form) {
-                console.error('Prompt form not found');
-                return;
-            }
+        // Parse the app data from the JSON script tag
+        try {
+            const appData = JSON.parse(document.getElementById('app-data').textContent);
+            window._appState = appData;
             
-            form.addEventListener('submit', async function(e) {
-                e.preventDefault();
-                
-                // Prevent multiple submissions
-                if (isProcessing) {
-                    console.log('Already processing a request');
-                    return;
-                }
-                
-                isProcessing = true;
-                
-                // Close any existing connection
-                closeConnection();
-                
-                const form = e.target;
-                const prompt = (form.prompt && form.prompt.value) || window._injected.prompt || '';
-                const model = (form.model && form.model.value) || window._injected.model || 'llama3';
-                const outputDiv = document.getElementById('stream-output');
-                const spinner = document.getElementById('loading-spinner');
-
-                if (!outputDiv) {
-                    console.error('Output div not found');
-                    isProcessing = false;
-                    return;
-                }
-                
-                outputDiv.textContent = '';
-                if (spinner) spinner.style.display = 'inline-block';
-
-                console.log('Connecting to SSE endpoint with prompt:', prompt, 'and model:', model);
-                
-                try {
-                    // Create a unique URL to prevent caching issues
-                    const url = `/stream?prompt=${encodeURIComponent(prompt)}&model=${encodeURIComponent(model)}&_=${Date.now()}`;
-                    console.log('Connecting to SSE endpoint:', url);
-                    
-                    // Close any existing connection
-                    closeConnection();
-                    
-                    // Create a new EventSource with error handling
-                    try {
-                        eventSource = new EventSource(url);
-                        let receivedData = false;
-                        let errorShown = false;
-                        let lastEventId = '';
-                        
-                        // Handle connection opened
-                        eventSource.onopen = function() {
-                            console.log('SSE connection established');
-                            if (spinner) spinner.style.display = 'inline-block';
-                            if (outputDiv) outputDiv.textContent = '';
-                        };
-                        
-                        // Handle incoming messages
-                        eventSource.onmessage = function(event) {
-                            try {
-                                console.log('SSE raw message:', event);
-                                
-                                // Update last event ID for reconnection
-                                if (event.lastEventId) {
-                                    lastEventId = event.lastEventId;
-                                }
-                                
-                                // Process the event data
-                                if (event.data && event.data.trim()) {
-                                    receivedData = true;
-                                    
-                                    // Handle different event types
-                                    switch (event.type) {
-                                        case 'status':
-                                            console.log('Status update:', event.data);
-                                            break;
-                                            
-                                        case 'error':
-                                            console.error('Server error:', event.data);
-                                            if (outputDiv) {
-                                                outputDiv.textContent += `\n[Error] ${event.data}\n`;
-                                                outputDiv.scrollTop = outputDiv.scrollHeight;
-                                            }
-                                            break;
-                                            
-                                        case 'end':
-                                            console.log('Stream ended');
-                                            closeConnection();
-                                            break;
-                                            
-                                        default:  // 'message' or unspecified
-                                            if (outputDiv) {
-                                                outputDiv.textContent += event.data;
-                                                outputDiv.scrollTop = outputDiv.scrollHeight;
-                                            }
-                                    }
-                                }
-                                
-                            } catch (e) {
-                                console.error('Error processing SSE message:', e);
-                            } finally {
-                                if (spinner) spinner.style.display = 'none';
-                            }
-                        };
-
-                        // Handle connection errors
-                        eventSource.onerror = function(error) {
-                            console.error('SSE connection error:', error);
-                            
-                            // Only show error if we haven't received any data yet
-                            if (!receivedData && !errorShown) {
-                                if (outputDiv) {
-                                    outputDiv.textContent = 'Error: Could not connect to the server. ';
-                                    outputDiv.textContent += 'Please check if the Ollama service is running and try again.';
-                                    outputDiv.scrollTop = outputDiv.scrollHeight;
-                                }
-                                errorShown = true;
-                            }
-                            
-                            // Close the connection on error
-                            closeConnection();
-                            if (spinner) spinner.style.display = 'none';
-                        };
-                        
-                        // Handle specific event types
-                        eventSource.addEventListener('status', function(e) {
-                            console.log('Status:', e.data);
-                        });
-                        
-                        eventSource.addEventListener('error', function(e) {
-                            console.error('Server error event:', e.data);
-                            if (outputDiv) {
-                                outputDiv.textContent += `\n[Server Error] ${e.data}\n`;
-                                outputDiv.scrollTop = outputDiv.scrollHeight;
-                            }
-                        });
-                        
-                        eventSource.addEventListener('end', function() {
-                            console.log('Received end event');
-                            closeConnection();
-                        });
-                        
-                        // Set a timeout to close the connection if no data is received
-                        const connectionTimeout = setTimeout(() => {
-                            if (!receivedData && eventSource.readyState !== EventSource.CLOSED) {
-                                console.error('SSE connection timeout');
-                                if (outputDiv) {
-                                    outputDiv.textContent = 'Error: Connection timed out. The server is taking too long to respond.';
-                                    outputDiv.scrollTop = outputDiv.scrollHeight;
-                                }
-                                closeConnection();
-                                if (spinner) spinner.style.display = 'none';
-                            }
-                        }, 30000); // 30 seconds timeout
-                        
-                        // Clean up the timeout when data is received
-                        eventSource.addEventListener('message', function cleanup() {
-                            clearTimeout(connectionTimeout);
-                            eventSource.removeEventListener('message', cleanup);
-                        });
-                        
-                    } catch (e) {
-                        console.error('Error creating EventSource:', e);
-                        if (outputDiv) {
-                            outputDiv.textContent = 'Error: Failed to create a connection to the server.';
-                            outputDiv.scrollTop = outputDiv.scrollHeight;
-                        }
-                        if (spinner) spinner.style.display = 'none';
-                    }
-
-                } catch (error) {
-                    console.error('Error creating EventSource:', error);
-                    if (spinner) spinner.style.display = 'none';
-                    if (outputDiv) {
-                        outputDiv.textContent = 'Error: Could not establish connection to the server.';
-                    }
-                    closeConnection();
-                }
+            // Backward compatibility
+            Object.keys(appData).forEach(key => {
+                window['_' + key] = appData[key];
             });
             
-            // Clean up on page unload
-            window.addEventListener('beforeunload', closeConnection);
-        }
-        
-        // Initialize when the DOM is fully loaded
-        if (document.readyState === 'loading') {
-            document.addEventListener('DOMContentLoaded', setupStreaming);
-        } else {
-            setupStreaming();
+            console.log('Application state initialized:', window._appState);
+        } catch (e) {
+            console.error('Failed to initialize application state:', e);
+            // Set safe defaults
+            window._appState = {
+                prompt: '',
+                model: 'llama3',
+                bash_command: null,
+                output: null,
+                error: null,
+                raw_model_output: null,
+                history: [],
+                models: []
+            };
         }
     </script>
     
-    <!-- Then load the rest of the JavaScript files -->
-    <script src="/static/injected_vars.js"></script>
-    <script src="/static/main.js"></script>
+    <!-- Load JavaScript files -->
+    <script src="{{ url_for('static', filename='sse-handler.js') }}"></script>
+    <script src="{{ url_for('static', filename='main.js') }}"></script>
 </body>
 </html>
