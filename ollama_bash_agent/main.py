@@ -47,6 +47,11 @@ def safe_template_context(**kwargs):
     defaults.update(kwargs)
     # Force all values to safe types
     safe_context = {k: _safe(v, defaults.get(k)) for k, v in defaults.items()}
+    # Log the type of each variable
+    print('--- Template Context Types ---')
+    for k, v in safe_context.items():
+        print(f"{k}: {type(v)} -> {repr(v)}")
+    print('-----------------------------')
     return safe_context
 
 import traceback
@@ -56,6 +61,8 @@ def index():
     context = safe_template_context()
     print('Rendering template: index.html')
     print('Template context:', context)
+    for k, v in context.items():
+        print(f"[DEBUG] {k}: {type(v)} -> {repr(v)}")
     return render_template('index.html', **context)
 
 @app.errorhandler(Exception)
